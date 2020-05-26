@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name:       Distributor
+ * Plugin Name:       Distributor (HKFP)
  * Description:       Makes it easy to syndicate and reuse content across your websites, whether inside of a multisite or across the web.
  * Version:           1.5.0
  * Author:            10up Inc.
