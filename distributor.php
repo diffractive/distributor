@@ -179,3 +179,87 @@ add_action(
 \Distributor\DistributedPostUI\setup();
 \Distributor\Settings\setup();
 
+// test pull functionality
+add_action('hkfp_distributor_pull_hook', function() {
+	add_action('init', function() {
+		\Distributor\Connections::factory()->register( '\Distributor\ExternalConnections\WordPressExternalConnection' );
+		$external_connection_id = 262049;
+		$external_connection = \Distributor\ExternalConnection::instantiate( $external_connection_id );
+		$connection_now = $external_connection;
+		$per_page = 10;
+		$current_page = 1;
+		$post_type = $connection_now->pull_post_type ?: 'post';
+
+		$remote_get_args = [
+			'posts_per_page' => $per_page,
+			'paged'          => $current_page,
+			'post_type'      => $post_type,
+			'orderby'        => 'ID', // this is because of include/exclude truncation
+			'order'          => 'DESC', // default but specifying to be safe
+		];
+
+
+		$sync_log = get_post_meta( $connection_now->id, 'dt_sync_log', true );
+
+		$skipped     = array();
+		$syndicated  = array();
+		$total_items = false;
+
+		foreach ( $sync_log as $old_post_id => $new_post_id ) {
+			if ( false === $new_post_id ) {
+				$skipped[] = (int) $old_post_id;
+			} else {
+				$syndicated[] = (int) $old_post_id;
+			}
+		}
+
+		rsort( $skipped, SORT_NUMERIC );
+		rsort( $syndicated, SORT_NUMERIC );
+
+		// This is somewhat arbitrarily set to 200 and should probably be made filterable eventually.
+		// IDs can get rather large and 400 easily exceeds typical header size limits.
+		// todo: the problem is, posts will be pulled duplicated if there are more than 200 in skipped and syndicated combined
+		$post_ids = array_slice( array_merge( $skipped, $syndicated ), 0, 200, true );
+
+		$remote_get_args['post__not_in'] = $post_ids;
+
+		$remote_get_args['meta_query'] = [
+			[
+				'key'     => 'dt_syndicate_time',
+				'compare' => 'NOT EXISTS',
+			],
+		];
+
+		$remote_get = $connection_now->remote_get( $remote_get_args );
+
+		
+		$posts = array_map(function( $wpobject ) use ( $post_type ) {
+			return [
+				'remote_post_id' => $wpobject->ID,
+				'post_type'      => $post_type,
+			];
+		}, $remote_get['items']);
+		// error_log(print_r($posts, true));
+
+		// todo: need to have the posts in published state
+		$new_posts  = $connection_now->pull( $posts );
+
+		foreach ( $posts as $key => $post_array ) {
+			if ( is_wp_error( $new_posts[ $key ] ) ) {
+				continue;
+			}
+			\Distributor\Subscriptions\create_remote_subscription( $connection_now, $post_array['remote_post_id'], $new_posts[ $key ] );
+		}
+		$post_id_mappings = array();
+
+		foreach ( $posts as $key => $post_array ) {
+			if ( is_wp_error( $new_posts[ $key ] ) ) {
+				continue;
+			}
+			$post_id_mappings[ $post_array['remote_post_id'] ] = $new_posts[ $key ];
+		}
+
+		$connection_now->log_sync( $post_id_mappings );
+	});
+});
+// do_action('hkfp_distributor_pull_hook');

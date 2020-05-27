@@ -78,13 +78,12 @@ function setup_list_table() {
 		if ( empty( \Distributor\Connections::factory()->get_registered()[ $external_connection_type ] ) ) {
 			continue;
 		}
-
 		$external_connection_status = get_post_meta( $external_connection_id, 'dt_external_connections', true );
-
+		
 		if ( empty( $external_connection_status ) || empty( $external_connection_status['can_get'] ) ) {
 			continue;
 		}
-
+		
 		$external_connection = \Distributor\ExternalConnection::instantiate( $external_connection_id );
 
 		if ( ! is_wp_error( $external_connection ) ) {

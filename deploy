@@ -1,0 +1,5 @@
+#!/bin/bash
+
+rsync="rsync -av --exclude '.git' --exclude 'vendor' ./ hkfp-ansible:/srv/www/dev.hongkongfp.com/wp-content/plugins/distributor-hkfp/"
+
+eval $rsync
