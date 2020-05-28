@@ -106,6 +106,7 @@ require_once __DIR__ . '/includes/syndicated-post-ui.php';
 require_once __DIR__ . '/includes/distributed-post-ui.php';
 require_once __DIR__ . '/includes/settings.php';
 require_once __DIR__ . '/includes/template-tags.php';
+require_once __DIR__ . '/includes/automatic-pull.php';
 
 if ( \Distributor\Utils\is_vip_com() ) {
 	add_filter( 'dt_network_site_connection_enabled', '__return_false', 9 );
@@ -179,87 +180,26 @@ add_action(
 \Distributor\DistributedPostUI\setup();
 \Distributor\Settings\setup();
 
-// test pull functionality
-add_action('hkfp_distributor_pull_hook', function() {
-	add_action('init', function() {
-		\Distributor\Connections::factory()->register( '\Distributor\ExternalConnections\WordPressExternalConnection' );
-		$external_connection_id = 262049;
-		$external_connection = \Distributor\ExternalConnection::instantiate( $external_connection_id );
-		$connection_now = $external_connection;
-		$per_page = 10;
-		$current_page = 1;
-		$post_type = $connection_now->pull_post_type ?: 'post';
-
-		$remote_get_args = [
-			'posts_per_page' => $per_page,
-			'paged'          => $current_page,
-			'post_type'      => $post_type,
-			'orderby'        => 'ID', // this is because of include/exclude truncation
-			'order'          => 'DESC', // default but specifying to be safe
-		];
-
-
-		$sync_log = get_post_meta( $connection_now->id, 'dt_sync_log', true );
-
-		$skipped     = array();
-		$syndicated  = array();
-		$total_items = false;
-
-		foreach ( $sync_log as $old_post_id => $new_post_id ) {
-			if ( false === $new_post_id ) {
-				$skipped[] = (int) $old_post_id;
-			} else {
-				$syndicated[] = (int) $old_post_id;
-			}
-		}
-
-		rsort( $skipped, SORT_NUMERIC );
-		rsort( $syndicated, SORT_NUMERIC );
-
-		// This is somewhat arbitrarily set to 200 and should probably be made filterable eventually.
-		// IDs can get rather large and 400 easily exceeds typical header size limits.
-		// todo: the problem is, posts will be pulled duplicated if there are more than 200 in skipped and syndicated combined
-		$post_ids = array_slice( array_merge( $skipped, $syndicated ), 0, 200, true );
-
-		$remote_get_args['post__not_in'] = $post_ids;
-
-		$remote_get_args['meta_query'] = [
-			[
-				'key'     => 'dt_syndicate_time',
-				'compare' => 'NOT EXISTS',
-			],
-		];
-
-		$remote_get = $connection_now->remote_get( $remote_get_args );
-
-		
-		$posts = array_map(function( $wpobject ) use ( $post_type ) {
-			return [
-				'remote_post_id' => $wpobject->ID,
-				'post_type'      => $post_type,
-			];
-		}, $remote_get['items']);
-		// error_log(print_r($posts, true));
-
-		// todo: need to have the posts in published state
-		$new_posts  = $connection_now->pull( $posts );
-
-		foreach ( $posts as $key => $post_array ) {
-			if ( is_wp_error( $new_posts[ $key ] ) ) {
-				continue;
-			}
-			\Distributor\Subscriptions\create_remote_subscription( $connection_now, $post_array['remote_post_id'], $new_posts[ $key ] );
-		}
-		$post_id_mappings = array();
-
-		foreach ( $posts as $key => $post_array ) {
-			if ( is_wp_error( $new_posts[ $key ] ) ) {
-				continue;
-			}
-			$post_id_mappings[ $post_array['remote_post_id'] ] = $new_posts[ $key ];
-		}
-
-		$connection_now->log_sync( $post_id_mappings );
-	});
+// hourly cron pull functionality
+add_action('hkfp_distributor_cron_pull_hook', function() {
+	\Distributor\AutomaticPull\initiate_pull();
 });
-// do_action('hkfp_distributor_pull_hook');
+// add_filter( 'cron_schedules', 'add_cron_onemin_interval' );
+// function add_cron_onemin_interval( $schedules ) { 
+//     $schedules['one_min'] = array(
+//         'interval' => 60,
+//         'display'  => esc_html__( 'Every 1 Min' ), );
+//     return $schedules;
+// }
+if ( ! wp_next_scheduled( 'hkfp_distributor_cron_pull_hook' ) ) {
+	// Production hourly schedule
+	date_default_timezone_set(get_option('timezone_string'));
+	wp_schedule_event( time(), 'hourly', 'hkfp_distributor_cron_pull_hook' );
+	
+	// Testing cron schedule
+    // wp_schedule_event( time(), 'one_min', 'hkfp_distributor_cron_pull_hook' );
+}
+register_deactivation_hook( __FILE__, function() {
+    $timestamp = wp_next_scheduled( 'hkfp_distributor_cron_pull_hook' );
+    wp_unschedule_event( $timestamp, 'hkfp_distributor_cron_pull_hook' );
+});

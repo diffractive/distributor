@@ -406,11 +406,11 @@ class WordPressExternalConnection extends ExternalConnection {
 				unset( $post_array['post_parent'] );
 			}
 
-			// Remove date stuff
-			unset( $post_array['post_date'] );
-			unset( $post_array['post_date_gmt'] );
-			unset( $post_array['post_modified'] );
-			unset( $post_array['post_modified_gmt'] );
+			// unset date stuff
+			unset($post_array['post_date']);
+			unset($post_array['post_date_gmt']);
+			unset($post_array['post_modified']);
+			unset($post_array['post_modified_gmt']);
 
 			/**
 			 * Filter the arguments passed into wp_insert_post during a pull.
@@ -465,6 +465,15 @@ class WordPressExternalConnection extends ExternalConnection {
 					\Distributor\Utils\set_media( $new_post, $post_array['media'] );
 				}
 			}
+
+			// update the dates - todo: does not know why it makes the pulled posts become "scheduled"
+			// wp_update_post(array(
+			// 	'ID'           				=> $new_post,
+			// 	'post_date'   				=> $item_array['post_date'],
+			// 	'post_date_gmt' 			=> $item_array['post_date_gmt'],
+			// 	'post_modified'   			=> $item_array['post_modified'],
+			// 	'post_modified_gmt' 		=> $item_array['post_modified_gmt'],
+			// ));
 
 			/**
 			 * Action triggered when a post is pulled via distributor.
